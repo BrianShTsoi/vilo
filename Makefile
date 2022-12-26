@@ -1,10 +1,9 @@
-all: kilo
+SRCS = *.c
+OBJS = $(patsubst %.c,%.o,$(SRCS))
 
-kilo: kilo.o
+kilo: $(OBJS)
 	$(CC) -o $@ $^ -Wall -Wextra -pedantic -std=c99
-
-kilo.o: kilo.c 
+%.o:	%.c
 	$(CC) -c $^
-
-clean: 
-	rm kilo.o kilo
+clean:
+	rm *.o kilo
