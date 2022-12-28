@@ -4,21 +4,16 @@
 
 #include "die.h"
 #include "rawmode.h"
-#include "input.h"
-
-#define CTRL_KEY(k) ((k) & 0x1f)
+#include "io.h"
 
 int main() {
     enable_raw_mode();
-    char c;
+    editor_init();
 
+    start_screen();
     while(1) {
-        c = '\0';
-        if (read(STDIN_FILENO, &c, 1) == -1 && errno != EAGAIN) 
-            die("read");
-        printf("%d\r\n", c);
-
-        if(c == CTRL_KEY('q')) break;
+        refresh_screen();
+        process_key();
     }
 
     return 0;
