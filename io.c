@@ -12,10 +12,16 @@
 #define KILO_VERSION "0.0.1"
 #define CTRL_KEY(k) ((k) & 0x1f)
 
+enum editor_mode {
+    NORMAL = 0,
+    INSERT
+};
+
 struct editor_config {
     int cx, cy;
     int screen_rows;
     int screen_cols;
+    enum editor_mode mode;
 };
 struct editor_config E;
 
@@ -32,21 +38,30 @@ char read_key() {
 void process_key() {
     char key = read_key();
 
-    buf_append(&key, 1);
-    switch (key) {
-        case 'j':
-        case 'k':
-        case 'h':
-        case 'l':
-            move_cursor(key);
-            break;
-        case CTRL_KEY('q'):
-            write(STDOUT_FILENO, "\x1b[2J", 4);
-            write(STDOUT_FILENO, "\x1b[H", 3);
-            exit(0);
-            break;
-        default:
-            break;
+    if (E.mode == NORMAL) {
+        switch (key) {
+            case 'i':
+                E.mode = INSERT;
+            case 'j':
+            case 'k':
+            case 'h':
+            case 'l':
+                move_cursor(key);
+                break;
+            case CTRL_KEY('q'):
+                write(STDOUT_FILENO, "\x1b[2J", 4);
+                write(STDOUT_FILENO, "\x1b[H", 3);
+                exit(0);
+                break;
+            default:
+                break;
+        }
+    }
+    else if (E.mode == INSERT) {
+        buf_append(&key, 1);
+        if (key == '\x1b') {
+            E.mode = NORMAL;
+        }
     }
 }
 
@@ -85,6 +100,7 @@ void editor_init() {
     E.cx = 0;
     E.cy = 0;
     get_win_size(&E.screen_rows, &E.screen_cols);
+    E.mode = NORMAL;
     buf_init();
 }
 
@@ -120,6 +136,13 @@ void start_screen() {
 }
 
 void refresh_screen() {
+    if (E.mode == NORMAL) {
+        buf_append("\x1b[2 q", 5);
+    }
+    else if (E.mode == INSERT) {
+        buf_append("\x1b[6 q", 5);
+    }
+
     buf_append("\x1b[?25l", 6);
     if (START) {
         start_screen();
