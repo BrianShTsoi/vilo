@@ -5,9 +5,10 @@
 #include "rawmode.h"
 #include "io.h"
 
-int main() {
+int main(int argc, char *argv[]) {
     enable_raw_mode();
     editor_init();
+    if (argc >= 2) editor_open(argv[1]);
 
     while(1) {
         refresh_screen();
