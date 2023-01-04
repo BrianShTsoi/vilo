@@ -10,6 +10,8 @@ char read_key();
 void process_key();
 void move_cursor(int key);
 
+void display_tildes(int rownum);
+void display_single_file_row(int rownum);
 void display_rows();
 void refresh_screen();
 void position_cursor();

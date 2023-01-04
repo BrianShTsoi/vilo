@@ -1,3 +1,4 @@
+//Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam
 #define _DEFAULT_SOURCE
 #define _BSD_SOURCE
 #define _GNU_SOURCE
@@ -29,7 +30,7 @@ struct TextRow {
 
 struct EditorConfig {
     int cx, cy;
-    int y_off;
+    int x_off, y_off;
     int screen_rows;
     int screen_cols;
     enum EditorMode mode;
@@ -42,6 +43,7 @@ struct EditorConfig E;
 void editor_init() {
     E.cx = 0;
     E.cy = 0;
+    E.x_off = 0;
     E.y_off = 0;
     get_win_size(&E.screen_rows, &E.screen_cols);
     E.mode = NORMAL;
@@ -95,7 +97,6 @@ char read_key() {
     char key = '0';
     if (read(STDIN_FILENO, &key, 1) == -1 && errno != EAGAIN)
         die("read");
-    
     return key;
 }
 
@@ -106,6 +107,11 @@ void process_key() {
         switch (key) {
             case 'i':
                 E.mode = INSERT;
+                break;
+            case 'a':
+                E.cx++;
+                E.mode = INSERT;
+                break;
             case 'j':
             case 'k':
             case 'h':
@@ -123,17 +129,20 @@ void process_key() {
     }
     else if (E.mode == INSERT) {
         if (key == '\x1b') {
+            if (E.cx > 0) E.cx--;
             E.mode = NORMAL;
         }
     }
 }
 
 void move_cursor(int key) {
+    int current_file_row_num = E.y_off + E.cy;
+    int current_row_len = E.file_rows ? E.rows[current_file_row_num].len : 0;
     switch (key) {
         case 'j':
-            if (E.cy < E.screen_rows - 1)
+            if (E.cy < E.screen_rows - 1 && E.cy < E.file_rows - 1)
                 E.cy++;
-            else if (E.file_rows - E.screen_rows > E.y_off)
+            else if (E.file_rows - E.screen_rows > E.y_off) 
                 E.y_off++;
             break;
         case 'k':
@@ -145,42 +154,66 @@ void move_cursor(int key) {
         case 'h':
             if (E.cx > 0)
                 E.cx--;
+            else if (E.x_off > 0)
+                E.x_off--;
             break;
         case 'l':
-            if (E.cx < E.screen_cols - 1)
+            if (E.cx < E.screen_cols - 1 && E.cx < current_row_len - 1) 
                 E.cx++;
+            else if (current_row_len - E.screen_cols > E.x_off)
+                E.x_off++;
             break;
     }
+    current_file_row_num = E.y_off + E.cy;
+    current_row_len = E.file_rows ? E.rows[current_file_row_num].len : 0;
+    if (E.cx > current_row_len - 1)
+        E.cx = current_row_len - 1;
+}
+
+void display_tildes(int screen_row_num) {
+    if (screen_row_num == E.screen_rows / 3 && E.file_rows == 0) {
+        char welcome[80];
+        int welcomelen = snprintf(welcome, sizeof(welcome),
+            "Kilo editor -- version %s", KILO_VERSION);
+        if (welcomelen > E.screen_cols) welcomelen = E.screen_cols;
+        int padding = (E.screen_cols - welcomelen) / 2;
+        if (padding) {
+            buf_append("~", 1);
+            padding--;
+        }
+        while (padding--) buf_append(" ", 1);
+        buf_append(welcome, welcomelen);
+    }
+    else {
+        buf_append("~", 1);
+    }
+    buf_append("\x1b[K", 3);
+}
+
+void display_single_file_row(int screen_row_num) {
+    int len = E.rows[screen_row_num + E.y_off].len - E.x_off;
+
+    if (len < 0) 
+        len = 0;
+    if (len > E.screen_cols) 
+        len = E.screen_cols;
+
+    buf_append(E.rows[screen_row_num + E.y_off].text + E.x_off, len);
+    buf_append("\x1b[K", 3);
 }
 
 void display_rows() {
     buf_append("\x1b[H", 3);
-    for (int i = 0; i < E.screen_rows; i++) {
-        if (i >= E.file_rows) {
-            if (i == E.screen_rows / 3 && E.file_rows == 0) {
-                char welcome[80];
-                int welcomelen = snprintf(welcome, sizeof(welcome),
-                    "Kilo editor -- version %s", KILO_VERSION);
-                if (welcomelen > E.screen_cols) welcomelen = E.screen_cols;
-                int padding = (E.screen_cols - welcomelen) / 2;
-                if (padding) {
-                    buf_append("~", 1);
-                    padding--;
-                }
-                while (padding--) buf_append(" ", 1);
-                buf_append(welcome, welcomelen);
-            }
-            else {
-                buf_append("~", 1);
-            }
+    for (int screen_row_num = 0; screen_row_num < E.screen_rows; screen_row_num++) {
+        if (screen_row_num < E.file_rows) {
+            display_single_file_row(screen_row_num);
         }
         else {
-            int len = E.rows[i + E.y_off].len;
-            if (len > E.screen_cols) len = E.screen_cols;
-            buf_append(E.rows[i + E.y_off].text, len);
+            display_tildes(screen_row_num);
         }
-        buf_append("\x1b[K", 3);
-        if (i != E.screen_rows - 1) buf_append("\r\n", 2);
+
+        if (screen_row_num != E.screen_rows - 1) 
+            buf_append("\r\n", 2);
     }
 }
 
