@@ -1,4 +1,3 @@
-//Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam
 #define _DEFAULT_SOURCE
 #define _BSD_SOURCE
 #define _GNU_SOURCE
@@ -21,6 +20,10 @@
 enum EditorMode {
     NORMAL = 0,
     INSERT
+};
+
+enum KEYS {
+    BACKSPACE = 127
 };
 
 struct TextRow {
@@ -51,6 +54,8 @@ void editor_init() {
     E.file_rows = 0;
     E.rows = NULL;
     buf_init();
+
+    E.screen_rows--;
 }
 
 void get_win_size(int* rows, int* cols) {
@@ -94,9 +99,10 @@ void append_text_row(char* string, size_t linelen) {
 }
 
 char read_key() {
-    char key = '0';
-    if (read(STDIN_FILENO, &key, 1) == -1 && errno != EAGAIN)
-        die("read");
+    char key;
+    int read_return = 0;
+    while ((read_return = read(STDIN_FILENO, &key, 1)) != 1)
+        if (read_return == -1 && errno != EAGAIN) die("read");
     return key;
 }
 
@@ -104,34 +110,53 @@ void process_key() {
     char key = read_key();
 
     if (E.mode == NORMAL) {
-        switch (key) {
-            case 'i':
-                E.mode = INSERT;
-                break;
-            case 'a':
-                E.cx++;
-                E.mode = INSERT;
-                break;
-            case 'j':
-            case 'k':
-            case 'h':
-            case 'l':
-                move_cursor(key);
-                break;
-            case CTRL_KEY('q'):
-                write(STDOUT_FILENO, "\x1b[2J", 4);
-                write(STDOUT_FILENO, "\x1b[H", 3);
-                exit(0);
-                break;
-            default:
-                break;
-        }
+        normal_process_key(key);
     }
     else if (E.mode == INSERT) {
-        if (key == '\x1b') {
+        insert_process_key(key);
+    }
+}
+
+void normal_process_key(char key) {
+    switch (key) {
+        case 'i':
+            E.mode = INSERT;
+            break;
+        case 'a':
+            E.cx++;
+            E.mode = INSERT;
+            break;
+        case 'j':
+        case 'k':
+        case 'h':
+        case 'l':
+            move_cursor(key);
+            break;
+        case CTRL_KEY('q'):
+            write(STDOUT_FILENO, "\x1b[2J", 4);
+            write(STDOUT_FILENO, "\x1b[H", 3);
+            exit(0);
+            break;
+        default:
+            break;
+    }
+}
+
+void insert_process_key(char key) {
+    switch (key) {
+        case '\x1b':
             if (E.cx > 0) E.cx--;
             E.mode = NORMAL;
-        }
+            break;
+        case '\r':
+            break;
+        case BACKSPACE:
+        case CTRL_KEY('h'):
+            backspace_char();
+            break;
+        default:
+            insert_char(key);
+            break;
     }
 }
 
@@ -158,7 +183,7 @@ void move_cursor(int key) {
                 E.x_off--;
             break;
         case 'l':
-            if (E.cx < E.screen_cols - 1 && E.cx < current_row_len - 1) 
+            if (E.cx < E.screen_cols - 1 && E.cx < current_row_len - 1) //E.cx max is current_row_len - 1 
                 E.cx++;
             else if (current_row_len - E.screen_cols > E.x_off)
                 E.x_off++;
@@ -166,8 +191,49 @@ void move_cursor(int key) {
     }
     current_file_row_num = E.y_off + E.cy;
     current_row_len = E.file_rows ? E.rows[current_file_row_num].len : 0;
-    if (E.cx > current_row_len - 1)
+
+    if (current_row_len == 0) {
+        E.cx = 0;
+    }
+    else if (E.cx > current_row_len - 1) {
         E.cx = current_row_len - 1;
+    }
+}
+
+void insert_char(int key) {
+    if (E.file_rows != 0) {
+        struct TextRow* current_row = &E.rows[E.cy + E.y_off];
+        int index = E.cx + E.x_off;
+
+        current_row->text = realloc(current_row->text, current_row->len + 2);
+        memmove(&current_row->text[index + 1], 
+                &current_row->text[index], 
+                current_row->len - index + 1);
+        current_row->text[index] = key;
+        current_row->len++;
+    
+        E.cx++;
+    } 
+    else
+        insert_newline();
+}
+
+void backspace_char() {
+    struct TextRow* current_row = &E.rows[E.cy + E.y_off];
+    int index = E.cx + E.x_off;
+    if (index == 0) return;
+
+    memmove(&current_row->text[index - 1], 
+            &current_row->text[index], 
+            current_row->len - index + 1);
+    current_row->len--;
+
+    E.cx--;
+
+}
+
+void insert_newline() {
+    return;
 }
 
 void display_tildes(int screen_row_num) {
@@ -202,6 +268,14 @@ void display_single_file_row(int screen_row_num) {
     buf_append("\x1b[K", 3);
 }
 
+void display_status_bar() {
+    buf_append("\x1b[7m", 4);
+    for (int i = 0; i < E.screen_cols; i++) {
+        buf_append(" ", 1);
+    }
+    buf_append("\x1b[m", 3);
+}
+
 void display_rows() {
     buf_append("\x1b[H", 3);
     for (int screen_row_num = 0; screen_row_num < E.screen_rows; screen_row_num++) {
@@ -211,10 +285,9 @@ void display_rows() {
         else {
             display_tildes(screen_row_num);
         }
-
-        if (screen_row_num != E.screen_rows - 1) 
-            buf_append("\r\n", 2);
+        buf_append("\r\n", 2);
     }
+    display_status_bar();
 }
 
 void refresh_screen() {
